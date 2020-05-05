@@ -66,8 +66,34 @@ vector<double> with_z(const vector<double> & pts, double z){
 	return res;
 }
 
-glm::vec3 camera_rotated(float rx_deg, float ry_deg, float rz_deg){
-	glm::vec3 kress_rot{2.191,2.226,0.005};
+
+struct Pose{
+	glm::vec3 pos;
+	glm::vec3 rot;
+	
+	std::vector<double> to_vec(){
+		return {pos.x, pos.y, pos.z, rot.x, rot.y, rot.z};
+	}
+	
+};
+
+std::ostream & operator<<(std::ostream & out, const Pose & p){
+	out << "[" << p.pos.x << "," << p.pos.y << "," << p.pos.z << "] @";
+	out << "[" << p.rot.x << "," << p.rot.y << "," << p.rot.z << "]";
+	return out;
+}
+
+
+Pose camera_rotated(float rx_deg, float ry_deg, float rz_deg){
+	//tcp camx
+	//const glm::vec3 kress_pos{-0.137, -0.338, 0.085}; // "zero" position, ie position of lense hovering over seed ...
+	//const glm::vec3 kress_rot{2.191,2.226,0.005}; // ... and default rotation
+	//const glm::vec3 kress_offset{0,0,0.02}; // distance between surface and lense
+	//tcp camy
+	const glm::vec3 kress_pos{-0.13768, -0.34907, 0.082}; // "zero" position, ie position of lense hovering over seed ...
+	const glm::vec3 kress_rot{0,0,0.143}; // ... and default rotation
+	const glm::vec3 kress_offset{0,0,0.001+0.002}; // distance between surface and lense
+	
 	const static float deg_to_rad = M_PI/180;
 	
 	float angle = glm::length(kress_rot);
@@ -75,70 +101,72 @@ glm::vec3 camera_rotated(float rx_deg, float ry_deg, float rz_deg){
 		glm::vec3 dir = kress_rot / (float)angle;
 		
 		auto q1 = glm::angleAxis(angle, dir);
-		auto qy = glm::angleAxis(ry_deg*deg_to_rad, glm::vec3(1,0,0));
-		auto qx = glm::angleAxis(rx_deg*deg_to_rad, glm::vec3(0,1,0));
+		auto qx = glm::angleAxis(rx_deg*deg_to_rad, glm::vec3(1,0,0));
+		auto qy = glm::angleAxis(ry_deg*deg_to_rad, glm::vec3(0,1,0));
 		auto qz = glm::angleAxis(rz_deg*deg_to_rad, glm::vec3(0,0,1));
 
-		auto q = q1*qy*qx*qz;
+		auto q = q1*qx*qy*qz;
 		
 		// back into rot-vec form
-		glm::vec3 res = glm::axis(q);
-		angle = glm::angle(q);
-		return angle*res;
+		glm::vec3 r_axis = glm::axis(q);
+		float r_angle = glm::angle(q);
+		
+		glm::vec3 off = kress_offset;
+		off = glm::rotate(off, rx_deg*deg_to_rad, glm::vec3(1,0,0));
+		off = glm::rotate(off, ry_deg*deg_to_rad, glm::vec3(0,1,0));
+		off = glm::rotate(off, rz_deg*deg_to_rad, glm::vec3(0,0,1));
+		//off.x *= -1; // WHY?
+		//cout << off.x << endl;
+		
+		glm::vec3 pos = kress_pos + off;
+		return {pos, r_axis*r_angle};
 	}
 	else{
 		cerr << "ouch" << endl;
 		std::terminate();
 	}
-
 }
 
 int main(int argc, char* argv[])
 {
 	RTDEControlInterface rtde_control("192.168.0.100");
-	double acceleration = 0.1;
-	double velocity = 0.1;
-
-	auto mv = [&](glm::vec3 pos, glm::vec3 angle){
-		vector<double> p0 = {pos.x, pos.y, pos.z, angle.x, angle.y, angle.z};
-		//rtde_control.moveL(p0, velocity, acceleration);
-	};
+	double acceleration = 0.02;
+	double velocity = 0.05;
 
 //	mv({0,-0.4,0}, {0.0,0.0,0.0});
 //	mv({0,-0.4,0}, {0.3,0.0,0.0});
 //	mv({0,-0.4,0}, {0.3,0.3,0.0});
 //	mv({0,-0.4,0}, {0.0,0.3,0.0});
-	glm::vec3 kress_pos{-0.137, -0.338, 0.100};
-	glm::vec3 kress_rot{2.191,2.226,0.005};
+//	glm::vec3 kress_pos{-0.137, -0.338, 0.100};
+//	glm::vec3 kress_rot{2.191,2.226,0.005};
 	//glm::vec3 kress_rot{2,1.58,0};
 	//glm::vec3 tool_rot{-0.0968,-2.2597,2.1154};
 	
-	for(int i =0; i < 5*100; i+=5){
-		float time_days = i/100.0;
+	int N = 1000;
+	for(int i =0; i < N; i++){
+		double time_days = 6*i/(double)N;
+	
+		float rz = TimeMapper(time_days,0,4.5).easeOut(-45, 0);
+		float ry = TimeMapper(time_days,2,6).easeInOut(0, 40);
+		float dz = TimeMapper(time_days,2,6).easeInOut(0, 0.002);
+		dz = 0;
 		
-		float angle = glm::length(kress_rot);
-		if(abs(angle)>0.001){
-			float rz = TimeMapper(time_days,0,2).easeOut(45, 0);
-			float ry = TimeMapper(time_days,1,2.5).easeInOut(0, 75);
-			float dz = TimeMapper(time_days,2,3).easeInOut(0,
-														   0.02);
-			
-			glm::vec3 pos = kress_pos + glm::vec3(0,0,dz);
-			glm::vec3 rot = camera_rotated(0, ry, rz);
-			
-			cout << "POS " << pos.x << "," << pos.y << "," << pos.z << endl;
-			cout << "ROT " << rot.x << "," << rot.y << "," << rot.z;
-			cout << " [enter]" << endl;
-			
-			//getchar();
-			vector<double> p = {pos.x, pos.y, pos.z, rot.x, rot.y, rot.z};
-			rtde_control.moveL(p, velocity, acceleration);
-		}
-		else{
-			cerr << "fixme" << endl;
-			std::terminate();
-		}
+		rz = TimeMapper(time_days,0,4.5).easeOut(0, 0);
+		ry = TimeMapper(time_days,0,6).easeInOut(0, 40);
+		dz = TimeMapper(time_days,2,6).easeInOut(0, 0.001);
 		
+		Pose p = camera_rotated(0, ry, rz);
+		p.pos.z += dz;
+		
+		cout << "POS " << i << "/" << 595 << ": " << p;
+		cout << " [enter]" << endl;
+		
+		//getchar();
+		rtde_control.moveL(p.to_vec(), velocity, acceleration);
+		//camy: -27.84, -463.66, 109.33, -1.0334, 1.3136, 1.2999
+		std::this_thread::sleep_for(chrono::milliseconds(1500));
+		system("cd /Users/hansi/Sync/projects/2020/comemak/code/test_10_kresse/ && ./gphoto2_capture.sh 2>&1 1>/dev/null");
+		std::this_thread::sleep_for(chrono::milliseconds(100));
 	}
 	
 	//mv({-0.137, -0.338, 0.100},{2.0,2.0,0.3});

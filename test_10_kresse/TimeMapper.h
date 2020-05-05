@@ -7,8 +7,9 @@
 
 #ifndef TimeMapper_h
 #define TimeMapper_h
-
-#define FLT_EPSILON 0.0001
+extern "C"{
+	#include <float.h>
+}
 
 // was ofMap() from openframeworks https://openframeworks.cc/documentation/math/ofMath/
 static inline float scale_lin(float value, float inputMin, float inputMax, float outputMin, float outputMax, bool clamp = false) {
